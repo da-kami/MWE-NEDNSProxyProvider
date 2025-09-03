@@ -44,7 +44,6 @@ class DNSProxyProvider: NEDNSProxyProvider {
 }
 
 func handleUDPFlow(_ flow: NEAppProxyUDPFlow, _ url: String) {
-
   Task {
     do {
       handleLog("Open UDP flow for \(url)")
@@ -64,11 +63,37 @@ func handleUDPFlow(_ flow: NEAppProxyUDPFlow, _ url: String) {
       }
 
       let remote = datagrams[0].1
+      let data = datagrams[0].0
+
+      let classesAndTypes = try extractClassAndTypeFromDnsQuestionDnsUtil(data)
+
+      if classesAndTypes.isEmpty {
+        throw InternalError.noClassType
+      } else if classesAndTypes.count > 1 {
+        // possible but not expected
+        handleLog(
+          "Unexpected DNS query with more than one question for url \(url): \(classesAndTypes)",
+          .warn)
+      } else {
+        handleLog(
+          "DNS query for url \(url) has class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
+        )
+      }
+
       let reply = try await resolveWithUpstream(
-        datagrams[0].0, dnsIpAddress: "8.8.8.8", dnsPort: 53)
+        data, dnsIpAddress: "8.8.8.8", dnsPort: 53)
+
+      let answers = try extractAnswersFromDnsReplyDnsUtil(reply)
+      for answer in answers {
+        handleLog(
+          "  Resolved answer \(answer) for \(url) with class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
+        )
+      }
 
       try await flow.writeDatagrams([(reply, remote)])
-      handleLog("Wrote reply to UDP flow for \(url)")
+      handleLog(
+        "Wrote reply to UDP flow for query for \(url) with class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
+      )
 
       flow.closeReadWithError(nil)
       flow.closeWriteWithError(nil)
@@ -167,6 +192,13 @@ enum InternalError: Error, Sendable {
   case noDnsResponse
   case dnsQueryMalformd
   case noDatagrams
+  case noClassType
+
+  case invalidDnsTransactionId
+  case dnsParseFailed
+  case dnsInvalidNoQuestion
+  case dnsQuestionParseFailed
+  case noAnwsersInDnsResponse
 
   case network(any Error)
 
@@ -176,11 +208,25 @@ enum InternalError: Error, Sendable {
       return [NSLocalizedDescriptionKey: "Upstream DNS server did not return data"]
     case .noDatagrams:
       return [NSLocalizedDescriptionKey: "No datagrams in flow"]
+    case .noClassType:
+      return [
+        NSLocalizedDescriptionKey:
+          "Not expected to parse for class and types and receive an empty array"
+      ]
     case .dnsQueryMalformd:
       return [NSLocalizedDescriptionKey: "Malformed DNS query"]
     case .network(let error):
       return [NSLocalizedDescriptionKey: error.localizedDescription]
+    case .invalidDnsTransactionId:
+      return [NSLocalizedDescriptionKey: "Invalid DNS transaction ID"]
+    case .dnsParseFailed:
+      return [NSLocalizedDescriptionKey: "Failed to parse DNS message"]
+    case .dnsInvalidNoQuestion:
+      return [NSLocalizedDescriptionKey: "DNS query does not have a question"]
+    case .dnsQuestionParseFailed:
+      return [NSLocalizedDescriptionKey: "Failed to extract question from DNS message"]
+    case .noAnwsersInDnsResponse:
+      return [NSLocalizedDescriptionKey: "No answers in DNS reply"]
     }
-
   }
 }
