@@ -1,0 +1,21 @@
+# Mac OS X
+.DS_Store
+.localized
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.fseventsd
+
+# Xcode
+## Build generated
+build/
+DerivedData/
+
+## Various settings
+xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+.idea
