@@ -167,20 +167,6 @@ enum InternalError: Error, Sendable {
   case noDnsResponse
   case dnsQueryMalformd
   case noDatagrams
-  case noDataRead
-  case noAnwsersInDnsResponse
-  case dnsStuckReadingTcpMessage
-  case invalidDnsTransactionId
-
-  case nwEndpointConversion
-
-  case dnsParseFailed
-  case dnsInvalidNoQuestion
-  case dnsQuestionParseFailed
-
-  case connectionTimeout
-  case noCache
-  case noFlow
 
   case network(any Error)
 
@@ -190,36 +176,8 @@ enum InternalError: Error, Sendable {
       return [NSLocalizedDescriptionKey: "Upstream DNS server did not return data"]
     case .noDatagrams:
       return [NSLocalizedDescriptionKey: "No datagrams in flow"]
-    case .noDataRead:
-      return [NSLocalizedDescriptionKey: "No data in flow"]
     case .dnsQueryMalformd:
       return [NSLocalizedDescriptionKey: "Malformed DNS query"]
-    case .nwEndpointConversion:
-      return [NSLocalizedDescriptionKey: "Failed to convert NWEndpoint to NetworkExtensionEndpoint"]
-    case .dnsParseFailed:
-      return [NSLocalizedDescriptionKey: "Failed to parse DNS message"]
-    case .dnsInvalidNoQuestion:
-      return [NSLocalizedDescriptionKey: "DNS query does not have a question"]
-    case .dnsQuestionParseFailed:
-      return [NSLocalizedDescriptionKey: "Failed to extract question from DNS message"]
-    case .noAnwsersInDnsResponse:
-      return [NSLocalizedDescriptionKey: "No Answers in DNS response, ignoring"]
-    case .invalidDnsTransactionId:
-      return [NSLocalizedDescriptionKey: "Invalid DNS transaction ID"]
-    case .connectionTimeout:
-      return [NSLocalizedDescriptionKey: "Connection timed out"]
-    case .noCache:
-      return [
-        NSLocalizedDescriptionKey:
-          "Somehow there is no cache in the flow manager, this should really not happen"
-      ]
-    case .noFlow:
-      return [NSLocalizedDescriptionKey: "Somehow there is no flow, this should really not happen"]
-    case .dnsStuckReadingTcpMessage:
-      return [
-        NSLocalizedDescriptionKey:
-          "Stuck reading TCP message, maybe the length bytes were malformed, aborting"
-      ]
     case .network(let error):
       return [NSLocalizedDescriptionKey: error.localizedDescription]
     }
