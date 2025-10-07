@@ -48,59 +48,97 @@ func handleUDPFlow(_ flow: NEAppProxyUDPFlow, _ url: String) {
     do {
       handleLog("Open UDP flow for \(url)")
       try await flow.open(withLocalFlowEndpoint: nil)
+      var counter = 0
 
-      let (datagrams, error) = await flow.readDatagrams()
-      if let error = error {
-        throw (error)
+      // TODO: Problem: This post https://developer.apple.com/forums/thread/772657?page=2#861318022 suggests that we should keep reading from the flow in a loop
+      // However, we never actually receive data on the same flow again, so I don't think this is correct.
+      while true {
+        counter += 1
+        do {
+          let (datagrams, error) = await flow.readDatagrams()
+          if let error = error {
+            throw (error)
+          }
+
+          // if the datagrams are nil we throw an error; this it not supposed to happen as we expect that this is only nil if the error is not nil
+          guard let datagrams = datagrams else {
+            throw (InternalError.noDatagrams)
+          }
+
+          if datagrams.isEmpty {
+            // TODO: Problem: We add a one second sleep because otherwise when there is no datagrams to read (i.e. empty array) there is a busy loop with constant high CPU.
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+
+            continue
+          }
+
+          if counter > 1 {
+            handleLog("Received more than one request on one flow", .debug)
+          }
+
+          // TODO: Theoretically there could be more than one datagram from the read (and we would have to handle muliple datagram in a loop), but we never actually see a flow where this happens.
+          if datagrams.count > 1 {
+            handleLog(
+              "Unexpected read of more than 1 datagram from flow for \(url); falling back to first datagram",
+              .debug)
+          }
+
+          let remote = datagrams[0].1
+          let data = datagrams[0].0
+
+          let classesAndTypes = try extractClassAndTypeFromDnsQuestionDnsUtil(data)
+
+          if classesAndTypes.isEmpty {
+            throw InternalError.noClassType
+          } else if classesAndTypes.count > 1 {
+            // possible but not expected
+            handleLog(
+              "Unexpected DNS query with more than one question for url \(url): \(classesAndTypes)",
+              .warn)
+          } else {
+            handleLog(
+              "DNS query for url \(url) has class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
+            )
+          }
+
+          Task {
+            do {
+              let reply = try await resolveWithUpstream(
+                data, dnsIpAddress: "8.8.8.8", dnsPort: 53)
+
+              let answers = try extractAnswersFromDnsReplyDnsUtil(reply)
+              for answer in answers {
+                handleLog(
+                  "  Resolved answer \(answer) for \(url) with class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
+                )
+              }
+
+              try await flow.writeDatagrams([(reply, remote)])
+              handleLog(
+                "Wrote reply to UDP flow for query for \(url) with class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
+              )
+            } catch {
+              handleLog(
+                "Failed to handle lookup/write for UDP flow for \(url), closed with error: \(error)",
+                .error)
+            }
+          }
+
+        } catch {
+          flow.closeReadWithError(error)
+          flow.closeWriteWithError(error)
+          handleLog("Failed to read from UDP flow for \(url), closed with error: \(error)", .error)
+        }
       }
 
-      guard let datagrams = datagrams else {
-        throw (InternalError.noDatagrams)
-      }
-
-      if datagrams.count != 1 {
-        throw InternalError.dnsQueryMalformd
-      }
-
-      let remote = datagrams[0].1
-      let data = datagrams[0].0
-
-      let classesAndTypes = try extractClassAndTypeFromDnsQuestionDnsUtil(data)
-
-      if classesAndTypes.isEmpty {
-        throw InternalError.noClassType
-      } else if classesAndTypes.count > 1 {
-        // possible but not expected
-        handleLog(
-          "Unexpected DNS query with more than one question for url \(url): \(classesAndTypes)",
-          .warn)
-      } else {
-        handleLog(
-          "DNS query for url \(url) has class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
-        )
-      }
-
-      let reply = try await resolveWithUpstream(
-        data, dnsIpAddress: "8.8.8.8", dnsPort: 53)
-
-      let answers = try extractAnswersFromDnsReplyDnsUtil(reply)
-      for answer in answers {
-        handleLog(
-          "  Resolved answer \(answer) for \(url) with class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
-        )
-      }
-
-      try await flow.writeDatagrams([(reply, remote)])
-      handleLog(
-        "Wrote reply to UDP flow for query for \(url) with class \(classesAndTypes[0].0) and type \(classesAndTypes[0].1)"
-      )
+      handleLog("Flow for \(url) finished, closing without error")
 
       flow.closeReadWithError(nil)
       flow.closeWriteWithError(nil)
     } catch {
       flow.closeReadWithError(error)
       flow.closeWriteWithError(error)
-      handleLog("UDP flow for \(url) closed with error: \(error)", .error)
+      handleLog("Failed to open UDP flow for \(url), closed with error: \(error)", .error)
     }
   }
 }
